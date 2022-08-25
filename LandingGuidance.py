@@ -32,7 +32,7 @@ class LandingGuidance:
         # Propriedade Computacional
         self.eng_threshold = 1
         self.final_speed = -2
-        self.hover_altitude = 30
+        self.hover_altitude = 20
         self.final_burn = False
         self.accelerating = False
 
@@ -129,8 +129,10 @@ class LandingGuidance:
         return max(result_1, result_2)
 
     def aim_vessel(self, v_speed):
+        """
         if self.accelerating:
             target_pos = np.array(self.target.position(self.surface_ref))
+            target_pos[0] += 10
             target_dir = self.normalize(target_pos)
             prograde_dir = self.prograde_dir() # Talvez de para pegar pelo krpc
             error_dir = target_dir - prograde_dir
@@ -141,6 +143,13 @@ class LandingGuidance:
                 target_dir = ((10 if self.final_burn else 1) * -vel[0], -vel[1], -vel[2])
             else:
                 target_dir = (1, 0, 0)
+        """
+
+        target_pos = np.array(self.target.position(self.surface_ref))
+        target_dir = self.normalize(target_pos)
+        prograde_dir = self.prograde_dir() # Talvez de para pegar pelo krpc
+        error_dir = target_dir - prograde_dir
+        target_dir = [2, 0, 0] + ((error_dir/2) * (1 if self.accelerating else -1))
 
         self.vessel.auto_pilot.target_direction = self.space_center.transform_direction(target_dir, self.surface_ref, self.body_ref)
 
