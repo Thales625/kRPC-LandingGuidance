@@ -29,13 +29,6 @@ class LandingGuidance:
         self.surface_altitude = self.conn.add_stream(getattr, self.flight, "surface_altitude")
         self.pitch = self.conn.add_stream(getattr, self.vessel.flight(self.surface_ref), "pitch")
 
-        # Propriedade Computacional
-        self.eng_threshold = 1
-        self.final_speed = -2
-        self.hover_altitude = 20
-        self.final_burn = False
-        self.accelerating = False
-
         # Initializing
         self.vessel.control.throttle = 0
         self.vessel.control.brakes = True
@@ -44,13 +37,23 @@ class LandingGuidance:
         self.vessel.auto_pilot.target_roll = -90
         self.vessel.auto_pilot.reference_frame = self.body_ref
 
+        # Wait
+        self.vessel.auto_pilot.target_direction = self.space_center.transform_direction((1, 0, 0), self.surface_ref, self.body_ref)
+
         while self.vertical_speed() > 0 or self.altitude() > 8000: # WAIT
-            self.aim_vessel(self.vertical_speed())
+            pass
+
+        # Propriedades Computacionais
+        self.eng_threshold = 1
+        self.final_speed = -2
+        self.hover_altitude = 30
+        self.final_burn = False
+        self.accelerating = False
 
         # Propriedades do Corpo
         self.surface_gravity = self.body.surface_gravity
 
-        # Propriedade do Foguete
+        # Propriedades do Foguete
         self.gears_delay = 4 /2
         
         # Thrust de acordo com ângulo de montagem do motor
@@ -59,7 +62,7 @@ class LandingGuidance:
             if engine.active:
                 self.thrust += engine.available_thrust * engine.part.direction(self.vessel.reference_frame)[1]
 
-        # Simulation
+        # Simulação
         self.simulation = Simulation(self.rocket_radius(), self.mass(), self.thrust*self.eng_threshold, self.altitude(), self.final_speed, self.body)
 
         while True:
@@ -86,7 +89,7 @@ class LandingGuidance:
             aeng = self.vessel.available_thrust/self.vessel.mass
             pitch = self.pitch()
 
-            self.aim_vessel(vert_speed)
+            self.aim_vessel()
 
             if vert_speed < 0 and pitch > 0:
                 if self.final_burn:
@@ -111,11 +114,27 @@ class LandingGuidance:
             else:
                 self.vessel.control.throttle = 0
 
+    def aim_vessel(self):
+        target_pos = np.array(self.target.position(self.surface_ref))
+        target_pos[0] += 5
+        target_dir = self.normalize(target_pos)
+        prograde_dir = self.prograde_dir()
+        error_dir = target_dir - prograde_dir
+        target_dir = [3, 0, 0] + ((error_dir/2) * (1 if self.accelerating else -100))
+        #target_dir = [2, 0, 0] + ((error_dir/2) * (1 if self.accelerating else -100))
+
+        self.vessel.auto_pilot.target_direction = self.space_center.transform_direction(target_dir, self.surface_ref, self.body_ref)
+
     def throttle_control(self, accel, pitch, factor=1):
         aeng = self.thrust / self.mass()
         throttle = (self.surface_gravity + accel*factor) / (aeng * sin(radians(pitch)))
         return throttle
 
+    def prograde_dir(self):
+        vel = self.space_center.transform_direction(self.vessel.velocity(self.body_ref), self.body_ref, self.surface_ref)
+        return self.normalize(vel)
+
+    # UTILS
     def rocket_radius(self):
         size = 0.5
         for fuel in self.vessel.resources.with_resource('LiquidFuel'):
@@ -128,40 +147,12 @@ class LandingGuidance:
         result_2 = (-v - d) / (2 * a)
         return max(result_1, result_2)
 
-    def aim_vessel(self, v_speed):
-        """
-        if self.accelerating:
-            target_pos = np.array(self.target.position(self.surface_ref))
-            target_pos[0] += 10
-            target_dir = self.normalize(target_pos)
-            prograde_dir = self.prograde_dir() # Talvez de para pegar pelo krpc
-            error_dir = target_dir - prograde_dir
-            target_dir = [2, 0, 0] + error_dir/2
-        else:
-            if v_speed < 0:
-                vel = self.space_center.transform_direction(self.velocity(), self.body_ref, self.surface_ref)
-                target_dir = ((10 if self.final_burn else 1) * -vel[0], -vel[1], -vel[2])
-            else:
-                target_dir = (1, 0, 0)
-        """
-
-        target_pos = np.array(self.target.position(self.surface_ref))
-        target_dir = self.normalize(target_pos)
-        prograde_dir = self.prograde_dir() # Talvez de para pegar pelo krpc
-        error_dir = target_dir - prograde_dir
-        target_dir = [2, 0, 0] + ((error_dir/2) * (1 if self.accelerating else -1))
-
-        self.vessel.auto_pilot.target_direction = self.space_center.transform_direction(target_dir, self.surface_ref, self.body_ref)
-
     def altitude(self):
         return max(0, self.surface_altitude() + self.vessel.bounding_box(self.surface_ref)[0][0])
     
     def normalize(self, vector):
         return vector / np.linalg.norm(vector)
 
-    def prograde_dir(self):
-        vel = self.space_center.transform_direction(self.vessel.velocity(self.body_ref), self.body_ref, self.surface_ref)
-        return self.normalize(vel)
 
 if __name__ == '__main__':
     LandingGuidance()
