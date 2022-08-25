@@ -1,3 +1,3 @@
 # KRPC-LandingGuidance
 
-Video: https://www.youtube.com/watch?v=MTPLQbLZUk8
+Video: https://youtu.be/MTPLQbLZUk8
