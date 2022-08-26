@@ -47,12 +47,11 @@ class LandingGuidance:
 
         # Propriedades Computacionais
         self.eng_threshold = 1
-        self.final_speed = -2
+        self.final_speed = 0
         self.hover_altitude = 20
         self.final_burn = False
         self.accelerating = False
         self.point = np.array(self.target.position(self.body_ref))
-        self.point_altitude_error = 0
         #Drawing
         self.draw_target_dir = self.drawing.add_direction((0, 0, 0), self.surface_ref)
         self.draw_prograde_dir = self.drawing.add_direction((0, 0, 0), self.surface_ref)
@@ -106,43 +105,51 @@ class LandingGuidance:
 
 
             # Aim to point
-            point_dist_hor = min(self.hover_altitude, (np.linalg.norm(point_pos[1:])*2) - 1)
-            self.point_altitude_error = point_dist_hor + point_pos[0]
+            #point_dist_hor = min(self.hover_altitude, (np.linalg.norm(point_pos[1:])*2) - 1)
+            #self.point_altitude_error = point_dist_hor + point_pos[0]
+            point_dist_hor = np.linalg.norm(point_pos[1:])
+            if point_dist_hor < 10:
+                self.final_speed = -2
+            else:
+                self.final_speed = 0
+            
+            #print(point_dist_hor)
 
             target_dir = self.normalize(point_pos) # Direção do alvo
             
             prograde_dir = self.prograde_dir() if self.accelerating else self.normalize(self.landing_prediction(time_fall, alt))
 
             error_dir = target_dir - prograde_dir
-            #print(error_dir)
-            #error_dir[0] = 0
-            aim_dir = [2, 0, 0] + ((error_dir/2) * (1 if self.accelerating else -100))
-            #target_dir = [1, 0, 0] + (error_dir * (.1 if self.accelerating else -10))
+ 
+            aim_dir = [2, 0, 0] + ((error_dir/2) * ((1 if self.final_burn else 2) if self.accelerating else -80))
 
             self.vessel.auto_pilot.target_direction = self.space_center.transform_direction(aim_dir, self.surface_ref, self.body_ref)
 
-            self.draw_prograde_dir.end = prograde_dir * self.draw_line_lenght
-            self.draw_target_dir.end = target_dir * self.draw_line_lenght
-            self.draw_aim_dir.end = aim_dir * self.draw_line_lenght
+            #self.draw_prograde_dir.end = prograde_dir * self.draw_line_lenght
+            #self.draw_target_dir.end = target_dir * self.draw_line_lenght
+            #self.draw_aim_dir.end = aim_dir * self.draw_line_lenght
 
 
             if self.final_burn:
                 self.vessel.gear = True
-                #self.vessel.control.throttle = self.throttle_control(self.final_speed - vert_speed, pitch, 5)
-                self.vessel.control.throttle = self.throttle_control(self.point_altitude_error/2 - vert_speed, pitch)
+                self.vessel.control.throttle = self.throttle_control(self.final_speed - vert_speed, pitch, 5)
+                #self.vessel.control.throttle = self.throttle_control(self.point_altitude_error/2 - vert_speed, pitch)
             else:
-                if alt <= self.hover_altitude:
-                    self.final_burn = True
-                elif time_fall <= self.gears_delay:
-                    self.vessel.control.gear = True
+                if vert_speed > 0:
+                    self.vessel.control.throttle = 0
+                else:
+                    if alt <= self.hover_altitude+50:
+                        self.final_burn = True
+                    elif time_fall <= self.gears_delay:
+                        self.vessel.control.gear = True
 
-                target_speed = self.simulation.get_speed(alt-self.hover_altitude)
-                delta_speed = target_speed + self.mag_speed()
+                    target_speed = self.simulation.get_speed(alt-self.hover_altitude)
+                    delta_speed = target_speed + self.mag_speed()
 
-                throttle = self.throttle_control(delta_speed, pitch, 10)
-                if throttle > 0:
-                    self.accelerating = True
-                self.vessel.control.throttle = throttle
+                    throttle = self.throttle_control(delta_speed, pitch, 10)
+                    if throttle > 0:
+                        self.accelerating = True
+                    self.vessel.control.throttle = throttle
     
 
 
