@@ -37,8 +37,7 @@ class LandingGuidance:
         self.vessel.auto_pilot.engage()
         self.vessel.auto_pilot.target_roll = -90
         self.vessel.auto_pilot.stopping_time = (0.5, 0.5, 0.5)
-        #self.vessel.auto_pilot.stopping_time = (1, 1, 1)
-        self.vessel.auto_pilot.reference_frame = self.body_ref #self.surface_ref
+        self.vessel.auto_pilot.reference_frame = self.body_ref
 
         # Wait
         self.vessel.auto_pilot.target_direction = self.space_center.transform_direction((1, 0, 0), self.surface_ref, self.body_ref)
@@ -55,7 +54,7 @@ class LandingGuidance:
         #self.point = np.array(self.target.position(self.body_ref))
         self.point = np.array(self.body.surface_position(-0.09679294489551704, -74.61739078306573, self.body_ref)) # KSC Landing Site
         #Drawing
-        self.draw = False
+        self.draw = True
         if self.draw:
             self.draw_target_dir = self.drawing.add_direction((0, 0, 0), self.surface_ref)
             self.draw_prograde_dir = self.drawing.add_direction((0, 0, 0), self.surface_ref)
@@ -100,7 +99,10 @@ class LandingGuidance:
             if self.accelerating:
                 if self.final_burn:
                     self.vessel.auto_pilot.stopping_time = (1, 1, 1)
-                    aim_dir = [2, 0, 0] + error_dir
+                    if (prograde_dir[0] - target_dir[0]) > 0:
+                        aim_dir = [2, 0, 0] + ([-1.5, 0, 0] - prograde_dir)
+                    else:
+                        aim_dir = [2, 0, 0] + error_dir
                 else:
                     self.vessel.auto_pilot.stopping_time = (0.5, 0.5, 0.5)
                     aim_dir = -self.get_velocity()
@@ -110,7 +112,7 @@ class LandingGuidance:
                 # LIMITAR PITCH
 
             aim_dir = self.normalize(aim_dir)
-           
+            #up_error_dir = (prograde_dir[0] - target_dir[0])
             self.vessel.auto_pilot.target_direction = self.space_center.transform_direction(aim_dir, self.surface_ref, self.body_ref)
 
             if point_dist_hor < 5 and np.linalg.norm(target_vel[1:]) < 10:
