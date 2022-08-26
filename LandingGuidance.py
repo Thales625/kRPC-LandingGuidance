@@ -4,7 +4,6 @@ from math import radians, sin, sqrt
 from Simulation import Simulation
 import numpy as np
 
-
 class LandingGuidance:
     def __init__(self, vessel=None):
         self.conn = krpc.connect('LandingGuidance')
@@ -37,7 +36,9 @@ class LandingGuidance:
         self.vessel.control.rcs = True
         self.vessel.auto_pilot.engage()
         self.vessel.auto_pilot.target_roll = -90
-        self.vessel.auto_pilot.reference_frame = self.body_ref
+        self.vessel.auto_pilot.stopping_time = (0.5, 0.5, 0.5)
+        #self.vessel.auto_pilot.stopping_time = (1, 1, 1)
+        self.vessel.auto_pilot.reference_frame = self.body_ref #self.surface_ref
 
         # Wait
         self.vessel.auto_pilot.target_direction = self.space_center.transform_direction((1, 0, 0), self.surface_ref, self.body_ref)
@@ -47,19 +48,22 @@ class LandingGuidance:
 
         # Propriedades Computacionais
         self.eng_threshold = 1
-        self.final_speed = 0
-        self.hover_altitude = 20
+        self.final_speed = -2
+        self.hover_altitude = 30
         self.final_burn = False
         self.accelerating = False
-        self.point = np.array(self.target.position(self.body_ref))
+        #self.point = np.array(self.target.position(self.body_ref))
+        self.point = np.array(self.body.surface_position(-0.09679294489551704, -74.61739078306573, self.body_ref)) # KSC Landing Site
         #Drawing
-        self.draw_target_dir = self.drawing.add_direction((0, 0, 0), self.surface_ref)
-        self.draw_prograde_dir = self.drawing.add_direction((0, 0, 0), self.surface_ref)
-        self.draw_aim_dir = self.drawing.add_direction((0, 0, 0), self.surface_ref)
-        self.draw_target_dir.color = (0, 0, 255) # Azul
-        self.draw_prograde_dir.color = (255, 0, 0) # Vermelho
-        self.draw_aim_dir.color = (0, 255, 0) # Verde
-        self.draw_line_lenght = 10
+        self.draw = False
+        if self.draw:
+            self.draw_target_dir = self.drawing.add_direction((0, 0, 0), self.surface_ref)
+            self.draw_prograde_dir = self.drawing.add_direction((0, 0, 0), self.surface_ref)
+            self.draw_aim_dir = self.drawing.add_direction((0, 0, 0), self.surface_ref)
+            self.draw_target_dir.color = (0, 0, 255) # Azul
+            self.draw_prograde_dir.color = (255, 0, 0) # Vermelho
+            self.draw_aim_dir.color = (0, 255, 0) # Verde
+            self.draw_line_lenght = 10
 
         # Propriedades do Corpo
         self.surface_gravity = self.body.surface_gravity
@@ -78,6 +82,69 @@ class LandingGuidance:
 
         while True:
             sleep(0.01)
+            
+            vert_speed = self.vertical_speed()
+            pitch = self.pitch()
+            point_pos = self.get_point_pos()
+            alt = -point_pos[0]
+            time_fall = self.time_fall(-.5 * self.surface_gravity, vert_speed, alt)
+
+            # Aim to point
+            point_dist_hor = np.linalg.norm(point_pos[1:])
+            
+            target_vel = self.get_velocity()
+            target_dir = self.normalize(point_pos) # Direção do alvo
+            prograde_dir = self.normalize(self.landing_prediction(time_fall, alt)) #self.prograde_dir() if self.accelerating else self.normalize(self.landing_prediction(time_fall, alt))
+            error_dir = target_dir - prograde_dir
+
+            if self.accelerating:
+                if self.final_burn:
+                    self.vessel.auto_pilot.stopping_time = (1, 1, 1)
+                    aim_dir = [2, 0, 0] + error_dir
+                else:
+                    self.vessel.auto_pilot.stopping_time = (0.5, 0.5, 0.5)
+                    aim_dir = -self.get_velocity()
+            else:
+                self.vessel.auto_pilot.stopping_time = (0.7, 0.7, 0.7)
+                aim_dir = [1, 0, 0] - error_dir*20
+                # LIMITAR PITCH
+
+            aim_dir = self.normalize(aim_dir)
+           
+            self.vessel.auto_pilot.target_direction = self.space_center.transform_direction(aim_dir, self.surface_ref, self.body_ref)
+
+            if point_dist_hor < 5 and np.linalg.norm(target_vel[1:]) < 10:
+                self.final_speed = -2
+            else:
+                self.final_speed = 0
+
+            if self.draw:
+                self.draw_prograde_dir.end = prograde_dir * self.draw_line_lenght
+                self.draw_target_dir.end = target_dir * self.draw_line_lenght
+                self.draw_aim_dir.end = aim_dir * self.draw_line_lenght
+
+
+            if self.final_burn:
+                self.vessel.gear = True
+                self.vessel.control.throttle = self.throttle_control(self.final_speed - vert_speed, pitch, 5)
+            else:
+                if vert_speed > 0:
+                    self.vessel.control.throttle = 0
+                else:
+                    if alt <= self.hover_altitude+2:
+                        self.final_burn = True
+                    elif time_fall <= self.gears_delay:
+                        self.vessel.control.gear = True
+
+                    target_speed = self.simulation.get_speed(alt-self.hover_altitude)
+                    delta_speed = target_speed + self.mag_speed()
+
+                    throttle = self.throttle_control(delta_speed, pitch, 10)
+                    if throttle > 0:
+                        self.accelerating = True
+                    self.vessel.control.throttle = throttle
+            
+            # Check Land
             if self.vessel.situation == self.vessel.situation.landed or self.vessel.situation == self.vessel.situation.splashed:
                 self.vessel.control.throttle = 0
                 self.vessel.control.brakes = False
@@ -95,80 +162,26 @@ class LandingGuidance:
                     self.vessel.control.rcs = False
                     self.vessel.auto_pilot.disengage()
                 break
-
-            
-            vert_speed = self.vertical_speed()
-            pitch = self.pitch()
-            point_pos = self.get_point_pos()
-            alt = -point_pos[0]
-            time_fall = self.time_fall(-.5 * self.surface_gravity, vert_speed, alt)
-
-
-            # Aim to point
-            #point_dist_hor = min(self.hover_altitude, (np.linalg.norm(point_pos[1:])*2) - 1)
-            #self.point_altitude_error = point_dist_hor + point_pos[0]
-            point_dist_hor = np.linalg.norm(point_pos[1:])
-            if point_dist_hor < 10:
-                self.final_speed = -2
-            else:
-                self.final_speed = 0
-            
-            #print(point_dist_hor)
-
-            target_dir = self.normalize(point_pos) # Direção do alvo
-            
-            prograde_dir = self.prograde_dir() if self.accelerating else self.normalize(self.landing_prediction(time_fall, alt))
-
-            error_dir = target_dir - prograde_dir
- 
-            aim_dir = [2, 0, 0] + ((error_dir/2) * ((1 if self.final_burn else 2) if self.accelerating else -80))
-
-            self.vessel.auto_pilot.target_direction = self.space_center.transform_direction(aim_dir, self.surface_ref, self.body_ref)
-
-            #self.draw_prograde_dir.end = prograde_dir * self.draw_line_lenght
-            #self.draw_target_dir.end = target_dir * self.draw_line_lenght
-            #self.draw_aim_dir.end = aim_dir * self.draw_line_lenght
-
-
-            if self.final_burn:
-                self.vessel.gear = True
-                self.vessel.control.throttle = self.throttle_control(self.final_speed - vert_speed, pitch, 5)
-                #self.vessel.control.throttle = self.throttle_control(self.point_altitude_error/2 - vert_speed, pitch)
-            else:
-                if vert_speed > 0:
-                    self.vessel.control.throttle = 0
-                else:
-                    if alt <= self.hover_altitude+50:
-                        self.final_burn = True
-                    elif time_fall <= self.gears_delay:
-                        self.vessel.control.gear = True
-
-                    target_speed = self.simulation.get_speed(alt-self.hover_altitude)
-                    delta_speed = target_speed + self.mag_speed()
-
-                    throttle = self.throttle_control(delta_speed, pitch, 10)
-                    if throttle > 0:
-                        self.accelerating = True
-                    self.vessel.control.throttle = throttle
     
 
 
     def throttle_control(self, accel, pitch, threshold=1):
-        aeng = self.thrust / self.mass()
-        return (self.surface_gravity + accel*threshold) / (aeng * sin(radians(pitch)))
+        if pitch > 0:
+            aeng = self.thrust / self.mass()
+            return (self.surface_gravity + accel*threshold) / (aeng * sin(radians(pitch)))
+        return 0
     
     def get_point_pos(self):
         point_pos = np.array(self.space_center.transform_position(self.point, self.body_ref, self.surface_ref))
         #point_pos[0] -= self.vessel.bounding_box(self.surface_ref)[0][0]
         return point_pos
 
+    def get_velocity(self):
+        return np.array(self.space_center.transform_direction(self.velocity(), self.body_ref, self.surface_ref))
+
     def landing_prediction(self, time_fall, alt):
         vel = self.space_center.transform_direction(self.velocity(), self.body_ref, self.surface_ref)
         return np.array([-alt, self.mu(0, vel[1], time_fall), self.mu(0, vel[2], time_fall)])
-    
-    def prograde_dir(self):
-        vel = self.space_center.transform_direction(self.vessel.velocity(self.body_ref), self.body_ref, self.surface_ref)
-        return self.normalize(vel)
 
     # UTILS
     def rocket_radius(self):
