@@ -17,7 +17,7 @@ class LandingGuidance:
 
         # Check Target
         self.target = self.space_center.target_vessel
-        if self.target is None:
+        if False and self.target is None:
             print('Selecione um alvo!')
             exit()
 
@@ -48,7 +48,7 @@ class LandingGuidance:
         # Propriedades Computacionais
         self.eng_threshold = 1
         self.final_speed = -2
-        self.hover_altitude = 30
+        self.hover_altitude = 20
         self.final_burn = False
         self.accelerating = False
         #self.point = np.array(self.target.position(self.body_ref))
@@ -97,25 +97,27 @@ class LandingGuidance:
             error_dir = target_dir - prograde_dir
 
             if self.accelerating:
-                if self.final_burn:
-                    self.vessel.auto_pilot.stopping_time = (1, 1, 1)
-                    if (prograde_dir[0] - target_dir[0]) > 0:
-                        aim_dir = [2, 0, 0] + ([-1.5, 0, 0] - prograde_dir)
-                    else:
-                        aim_dir = [2, 0, 0] + error_dir
+                self.vessel.auto_pilot.stopping_time = (1, 1, 1)
+                if (prograde_dir[0] - target_dir[0]) > 0:
+                    #aim_dir = [2, 0, 0] + ([-1.5, 0, 0] - prograde_dir)
+                    aim_dir = [2, 0, 0] + ([-1.6, 0, 0] - prograde_dir)
                 else:
-                    self.vessel.auto_pilot.stopping_time = (0.5, 0.5, 0.5)
-                    aim_dir = -self.get_velocity()
+                    aim_dir = [2, 0, 0] + error_dir
             else:
                 self.vessel.auto_pilot.stopping_time = (0.7, 0.7, 0.7)
-                aim_dir = [1, 0, 0] - error_dir*20
-                # LIMITAR PITCH
+                aim_dir = [1, 0, 0] - (error_dir * [0, 10, 10])
+
+                #self.vessel.auto_pilot.stopping_time = (0.5, 0.5, 0.5)
+                #aim_dir = -self.get_velocity()
+
 
             aim_dir = self.normalize(aim_dir)
             #up_error_dir = (prograde_dir[0] - target_dir[0])
             self.vessel.auto_pilot.target_direction = self.space_center.transform_direction(aim_dir, self.surface_ref, self.body_ref)
+            #print(self.vessel.auto_pilot.target_pitch)
 
-            if point_dist_hor < 5 and np.linalg.norm(target_vel[1:]) < 10:
+
+            if point_dist_hor < 5 and np.linalg.norm(target_vel[1:]) < 2:
                 self.final_speed = -2
             else:
                 self.final_speed = 0
@@ -193,10 +195,13 @@ class LandingGuidance:
         return abs(size)/2
 
     def time_fall(self, a, v, h):
-        d = sqrt((v * v) - 4 * a * h)
-        result_1 = (-v + d) / (2 * a)
-        result_2 = (-v - d) / (2 * a)
-        return max(result_1, result_2)
+        try:
+            d = sqrt((v * v) - 4 * a * h)
+            result_1 = (-v + d) / (2 * a)
+            result_2 = (-v - d) / (2 * a)
+            return max(result_1, result_2)
+        except:
+            return 0
     
     def mu(self, s0, v0, time):
         return s0 + v0 * time
