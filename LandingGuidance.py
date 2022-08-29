@@ -18,7 +18,7 @@ class LandingGuidance:
 
         # Check Target
         self.target = self.space_center.target_vessel
-        if self.target is None:
+        if False and self.target is None:
             print('Selecione um alvo!')
             exit()
 
@@ -49,13 +49,13 @@ class LandingGuidance:
         # Params
         self.eng_threshold = 0.9
         self.final_speed = -2
-        self.target_speed = 20
-        self.hover_altitude = 20
+        self.target_speed = 10
+        self.hover_altitude = 15
         self.target_radius = 8
         self.final_burn = False
         self.final_approach = False
         self.accelerating = False
-        self.reorient_delay = 1
+        self.reorient_delay = 2
         self.gears_delay = 4 /2
         self.point = np.array(self.target.position(self.body_ref))
         #self.point = np.array(self.body.surface_position(-0.09679294489551704, -74.61739078306573, self.body_ref)) # KSC Landing Site
@@ -112,7 +112,7 @@ class LandingGuidance:
                         if point_dist_hor >= self.target_radius: # Sair do raio do alvo
                             self.final_approach = False
                     
-                    self.vessel.control.throttle = self.throttle_control(target_accel, pitch)
+                    self.vessel.control.throttle = self.throttle_control(target_accel, pitch, 2)
 
                 if not self.final_approach and np.linalg.norm(prograde_dir[1:] - target_dir[1:]) < 0.5: # Goto target
                         target_speed = min(point_dist_hor/8, self.target_speed)
