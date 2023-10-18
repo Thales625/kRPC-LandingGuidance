@@ -141,35 +141,34 @@ class LandingGuidance:
 
 
             # Throttle Control
-            if alt < 8000:
-                if not self.final_burn:
-                    if vert_speed > 0:
-                        self.vessel.control.throttle = 0
+            if alt < 8000 and not self.final_burn:
+                if vert_speed > 0:
+                    self.vessel.control.throttle = 0
+                else:
+                    if alt <= self.hover_altitude:
+                        self.final_burn = True
+                        self.vessel.gear = True
+                        continue
+                    elif time_fall <= self.gears_delay:
+                        self.vessel.control.gear = True
+
+                    a_net = max(0.1, a_eng - self.ag)
+
+                    target_speed = -sqrt(self.final_speed*self.final_speed + 2*a_net*(alt-self.hover_altitude))
+                    delta_speed = mag_speed + target_speed
+
+                    delta_h = alt - (vert_speed*vert_speed + 2*self.ag*alt - 2*self.final_speed*self.final_speed) / (2*a_eng)
+                    t_to_burn = (vert_speed + sqrt(vert_speed*vert_speed + 2*self.ag*delta_h)) / self.ag
+
+                    throttle = self.throttle_control(delta_speed, a_eng, pitch, 10)
+
+                    self.vessel.control.throttle = throttle
+
+                    if self.accelerating: # Tempo para ligar motor
+                        print(f'DeltaSpeed: {delta_speed:.2f}')
                     else:
-                        if alt <= self.hover_altitude:
-                            self.final_burn = True
-                            self.vessel.gear = True
-                            continue
-                        elif time_fall <= self.gears_delay:
-                            self.vessel.control.gear = True
-
-                        a_net = max(0.1, a_eng - self.ag)
-
-                        target_speed = -sqrt(self.final_speed*self.final_speed + 2*a_net*(alt-self.hover_altitude))
-                        delta_speed = mag_speed + target_speed
-
-                        delta_h = alt - (vert_speed*vert_speed + 2*self.ag*alt - 2*self.final_speed*self.final_speed) / (2*a_eng)
-                        t_to_burn = (vert_speed + sqrt(vert_speed*vert_speed + 2*self.ag*delta_h)) / self.ag
-
-                        throttle = self.throttle_control(delta_speed, a_eng, pitch, 10)
-
-                        self.vessel.control.throttle = throttle
-
-                        if self.accelerating: # Tempo para ligar motor
-                            print(f'DeltaSpeed: {delta_speed:.2f}')
-                        else:
-                            if t_to_burn < self.reorient_delay: self.accelerating = True
-                            print(f'Ignição em: {t_to_burn:.2f}s')
+                        if t_to_burn < self.reorient_delay: self.accelerating = True
+                        print(f'Ignição em: {t_to_burn:.2f}s')
                             
 
             # Check Land
