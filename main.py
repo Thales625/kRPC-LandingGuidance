@@ -7,7 +7,7 @@ from Vector import Vector3, Vector2
 from PhaseController import PhaseController
 
 class LandingGuidance:
-    def __init__(self, land_func=None):
+    def __init__(self):
         self.conn = krpc.connect("LandingGuidance")
         self.space_center = self.conn.space_center
         self.vessel = self.space_center.active_vessel
@@ -37,27 +37,18 @@ class LandingGuidance:
         self.stream_situation = self.conn.add_stream(getattr, self.vessel, "situation")
 
         # ===================
-        
-        if land_func is None:
-            self.land_func = lambda self: (
-                self.progressive_engine_cut(),
-                self.sas_aim_up(),
-                self.finish())
-        else:
-            self.land_func = land_func
 
         # Phase Controller
-        self.phase_controller = PhaseController([(self.coasting, None), (self.landing_burn, None), (self.going_target, None), (self.descent, self.descent_transition)])
+        self.phase_controller = PhaseController([(self.coasting, None), (self.landing_burn, None), (self.going_target, self.going_target_transition), (self.descent, self.descent_transition), (self.finish, None)])
 
         # Params
         self.max_twr = 4
         self.eng_threshold = .9
         self.final_speed = -2
-        self.final_altitude = 15
-        self.target_speed = 10
+        self.final_altitude = 20
         
-        self.target_radius = 8
-        self.reorient_delay = 2
+        self.target_radius = 5
+        self.reorient_delay = 1
 
         # Consts
         self.a_g = self.body.surface_gravity
@@ -66,7 +57,6 @@ class LandingGuidance:
         self.vf_2 = self.final_speed*abs(self.final_speed)
 
         # Vars
-        self.phase = 0 # 0-coasting | 1-landing burn | 2-going target | 3-descent
         self.point = Vector3(self.target.position(self.body_ref))
         #self.point = Vector3(self.body.surface_position(-0.09679294489551704, -74.61739078306573, self.body_ref)) # KSC Landing Site
 
@@ -76,7 +66,7 @@ class LandingGuidance:
         self.control.rcs = True
         self.auto_pilot.engage()
         self.auto_pilot.reference_frame = self.body_ref
-        self.auto_pilot.stopping_time = (0.8, 0.8, 0.8) #(0.5, 0.5, 0.5)
+        self.auto_pilot.stopping_time = (0.5, 0.5, 0.5)
         self.auto_pilot.deceleration_time = (5, 5, 5)
         self.auto_pilot.target_roll = -90
 
@@ -84,16 +74,14 @@ class LandingGuidance:
         while self.stream_vel()[0] > 0:
             self.auto_pilot.target_direction = self.space_center.transform_direction((1, 0, 0), self.surface_ref, self.body_ref)
             sleep(0.5)
-        
-        while self.stream_surface_altitude() > 15000:
-            self.auto_pilot.target_direction = Vector3(self.flight_body.velocity) * -1
-            sleep(0.5)
 
         # Lines
+        '''
         line_aim_dir = self.conn.drawing.add_line((0, 0, 0), (0, 0, 0), self.surface_ref)
         line_aim_dir.color = (0, 0, 1)
         line_target_dir = self.conn.drawing.add_line((0, 0, 0), (0, 0, 0), self.surface_ref)
         line_target_dir.color = (1, 0, 0)
+        '''
 
         # Variables
         self._vel = Vector3()
@@ -105,8 +93,7 @@ class LandingGuidance:
         self._a_eng_l = 0
         self._point_pos = Vector3()
         self._alt = 0
-        self._dist = 0
-        self._error = Vector3()
+        self._land_predict_dir = Vector3()
 
         while True:
             self._vel = Vector3(self.stream_vel())
@@ -123,15 +110,12 @@ class LandingGuidance:
     
             self._point_pos = Vector3(self.space_center.transform_position(self.point, self.body_ref, self.surface_ref))
             self._alt = self.stream_bbox()[0][0] - self._point_pos.x
+            if self._alt < 0: self._alt = 0
 
-          
             t_free_fall = (self._vel.x + sqrt(2*self.a_g*self._alt + self._vel.x**2)) / self.a_g
             landing_prediction = Vector3(-self._alt, self._vel.y*t_free_fall, self._vel.z*t_free_fall)
-            self._dist = landing_prediction.magnitude()
 
-            land_predict_dir = landing_prediction / self._dist
-            land_target_dir = (self._point_pos - Vector3(0, self._vel.y*5, self._vel.z*5)).normalize()
-            self._error = land_predict_dir - land_target_dir
+            self._land_predict_dir = landing_prediction.normalize()
 
             self.phase_controller.loop()
 
@@ -140,65 +124,99 @@ class LandingGuidance:
             self.auto_pilot.target_direction = self.space_center.transform_direction(self._aim_dir, self.surface_ref, self.body_ref)
             self.control.throttle = self._throttle
 
+            '''
             line_aim_dir.end = self._aim_dir * 10
-            line_target_dir.end = land_target_dir * 10
+            line_target_dir.end = self._point_pos.normalize() * 10
+            '''
 
             sleep(0.05)
 
 
     def coasting(self):
         print("COASTING")
+        # AIM CONTROL
+        error = self._land_predict_dir - (self._point_pos + Vector3(0, .1*self._point_pos.y, .1*self._point_pos.z)).normalize()
+        self._aim_dir = Vector3(.1, error.y, error.z)
+
         v_2 = self._vel.x*abs(self._vel.x)
         burn_altitude = abs((self._mag_speed**2 + self.vf_2 + 2*self.a_g*self._alt) / (2 * self._a_eng_l))
         t_to_burn = (self._vel.x + sqrt(max(0, 2*self.a_g*(self._alt - burn_altitude) - v_2))) / self.a_g
-
-        self._aim_dir = Vector3(2, self._error.y, self._error.z)
-
         if t_to_burn < self.reorient_delay:
             self.phase_controller.next_phase()
 
     def landing_burn(self):
-        print("LANDING BURN")
+        print("LANDING-BURN")
         # THROTTLE CONTROL
-        a_net = max(self._a_eng_l - self.a_g, .1)
-        target_speed = sqrt(self.final_speed**2 + 2*a_net*abs(self._dist-self.final_altitude))
+        a_net = self._a_eng_l - self.a_g
+        target_speed = sqrt(2*a_net*abs(self._alt-self.final_altitude))
         delta_speed = self._mag_speed - target_speed
-        self._throttle = (delta_speed*5 + self.a_g) / self._a_eng
+        self._throttle = 0 if self._vel.x > self.final_speed else ((delta_speed*5 + self.a_g) / self._a_eng)
 
         # AIM CONTROL
-        self._aim_dir = Vector3(5, -self._error.y, -self._error.z)
+        land_target_dir = (self._point_pos - Vector3(0, self._vel.y*5, self._vel.z*5)).normalize()
+        error = self._land_predict_dir - land_target_dir
+        self._aim_dir = Vector3(2, -error.y, -error.z)
 
         if self._alt <= self.final_altitude:
             self.phase_controller.next_phase()
 
+    def going_target_transition(self):
+        print("GOING-TARGET TRANSITION")
+        self.point = Vector3(self.target.position(self.body_ref))
+        self.control.brakes = False
+
     def going_target(self):
-        print("GOING TARGET")
+        print("GOING-TARGET")
+        # THROTTLE CONTROL
         delta_h = self.final_altitude - self._alt
-        v_target = sqrt(2*self.a_g*abs(delta_h)) * (delta_h / abs(delta_h))
+        
+        if delta_h < 0:
+            a_net = self._a_eng - self.a_g
+            v_target = -a_net * sqrt(-delta_h/a_net)
+        else:
+            v_target = self.a_g * sqrt(delta_h/self.a_g)
+
         delta_v = v_target - self._vel.x
-        self._throttle = (delta_v*2 + self.a_g) / self._a_eng
+        self._throttle = (delta_v + self.a_g) / self._a_eng
 
-        self._aim_dir = Vector3(5, -self._error.y, -self._error.z)
+        # AIM CONTROL
+        land_target_dir = (self._point_pos - Vector3(0, self._vel.y*5, self._vel.z*5)).normalize()
+        error = self._land_predict_dir - land_target_dir
+        self._aim_dir = Vector3(4, -error.y, -error.z)
 
-        if Vector2(self._vel.y, self._vel.z).magnitude() <= 1 and Vector2(self._point_pos.y, self._point_pos.z).magnitude() <= 1:
+        if Vector2(self._vel.y, self._vel.z).magnitude() <= 5 and Vector2(self._point_pos.y, self._point_pos.z).magnitude() <= self.target_radius:
             self.phase_controller.next_phase()
 
     def descent_transition(self):
+        print("DESCENT TRANSITION")
         self.control.gear = True
 
     def descent(self):
         print("DESCENT")
         # THROTTLE CONTROL
-        delta_speed = self._mag_speed - self.final_speed
+        delta_speed = self.final_speed - self._vel.x
         self._throttle = (delta_speed*2 + self.a_g) / self._a_eng
 
         # AIM CONTROL
-        self._aim_dir = Vector3(4, -self._error.y, -self._error.z)
+        land_target_dir = (self._point_pos - Vector3(0, self._vel.y*5, self._vel.z*5)).normalize()
+        error = self._land_predict_dir - land_target_dir
+        self._aim_dir = Vector3(6, -error.y, -error.z)
 
         situation = self.stream_situation()
         if situation == self.landed_situation or situation == self.splashed_situation:
-            self.land_func()
+            self.phase_controller.next_phase()
 
+    def finish(self):
+        print("FINISH")
+        self.progressive_engine_cut()
+        self.sas_aim_up()
+
+        self.control.rcs = True
+        self.control.brakes = False
+        print(f"{self.vessel.name} has landed!")
+        self.conn.close()
+
+        exit()
 
 
     def progressive_engine_cut(self):
@@ -230,12 +248,6 @@ class LandingGuidance:
             self.auto_pilot.target_direction = self.space_center.transform_direction((1, 0, 0), self.surface_ref, self.body_ref)
             input("Press enter to finish program.")
             self.auto_pilot.disengage()
-
-    def finish(self):
-        self.control.rcs = True
-        self.control.brakes = False
-        print(f"{self.vessel.name} has landed!")
-        self.conn.close()
 
 if __name__ == "__main__":
     LandingGuidance()
