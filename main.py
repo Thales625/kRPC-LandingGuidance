@@ -47,7 +47,7 @@ class LandingGuidance:
             self.land_func = land_func
 
         # Phase Controller
-        self.phase_controller = PhaseController([self.coasting, self.landing_burn, self.going_target, self.descent])
+        self.phase_controller = PhaseController([(self.coasting, None), (self.landing_burn, None), (self.going_target, None), (self.descent, self.descent_transition)])
 
         # Params
         self.max_twr = 4
@@ -89,14 +89,26 @@ class LandingGuidance:
             self.auto_pilot.target_direction = Vector3(self.flight_body.velocity) * -1
             sleep(0.5)
 
-        # LINES
+        # Lines
         line_aim_dir = self.conn.drawing.add_line((0, 0, 0), (0, 0, 0), self.surface_ref)
         line_aim_dir.color = (0, 0, 1)
         line_target_dir = self.conn.drawing.add_line((0, 0, 0), (0, 0, 0), self.surface_ref)
         line_target_dir.color = (1, 0, 0)
 
+        # Variables
+        self._vel = Vector3()
+        self._mass = 0
+        self._aim_dir = Vector3()
+        self._throttle = 0
+        self._mag_speed = 0
+        self._a_eng = 0
+        self._a_eng_l = 0
+        self._point_pos = Vector3()
+        self._alt = 0
+        self._dist = 0
+        self._error = Vector3()
+
         while True:
-            # Get Streams
             self._vel = Vector3(self.stream_vel())
             self._mass = self.stream_mass()
             av_thrust = self.stream_av_thrust()
@@ -154,14 +166,6 @@ class LandingGuidance:
         self._throttle = (delta_speed*5 + self.a_g) / self._a_eng
 
         # AIM CONTROL
-        """
-        vel_dir = self._vel / self._mag_speed
-        error = self._error
-        error.x = abs(error.x)
-        error = error.normalize()
-        self._aim_dir = -vel_dir*2 - error
-        """
-
         self._aim_dir = Vector3(5, -self._error.y, -self._error.z)
 
         if self._alt <= self.final_altitude:
@@ -179,12 +183,21 @@ class LandingGuidance:
         if Vector2(self._vel.y, self._vel.z).magnitude() <= 1 and Vector2(self._point_pos.y, self._point_pos.z).magnitude() <= 1:
             self.phase_controller.next_phase()
 
-    def descent(self):
-        print("DESCENT")
-        self._aim_dir = Vector3(4, -self._error.y, -self._error.z)
+    def descent_transition(self):
         self.control.gear = True
 
-        self.land_func()
+    def descent(self):
+        print("DESCENT")
+        # THROTTLE CONTROL
+        delta_speed = self._mag_speed - self.final_speed
+        self._throttle = (delta_speed*2 + self.a_g) / self._a_eng
+
+        # AIM CONTROL
+        self._aim_dir = Vector3(4, -self._error.y, -self._error.z)
+
+        situation = self.stream_situation()
+        if situation == self.landed_situation or situation == self.splashed_situation:
+            self.land_func()
 
 
 
