@@ -2,7 +2,7 @@ import krpc
 from time import sleep
 from math import sqrt
 
-from Vector import Vector3, Vector2
+from PyVecs import Vector3, Vector2
 
 from PhaseController import PhaseController
 
@@ -57,8 +57,17 @@ class LandingGuidance:
         self.vf_2 = self.final_speed*abs(self.final_speed)
 
         # Vars
-        self.point = Vector3(self.target.position(self.body_ref))
-        #self.point = Vector3(self.body.surface_position(-0.09679294489551704, -74.61739078306573, self.body_ref)) # KSC Landing Site
+        #self.point = Vector3(self.target.position(self.body_ref)) # Target
+
+        # VAB TOP
+        #lat = -0.09679294489551704
+        #lon = -74.61739078306573
+
+        # RUNWAY
+        lat = -0.04933661420340462
+        lon = -74.61837250015034
+
+        self.point = Vector3(self.body.surface_position(lat, lon, self.body_ref))
 
         # Initializing
         self.control.throttle = 0
@@ -74,14 +83,6 @@ class LandingGuidance:
         while self.stream_vel()[0] > 0:
             self.auto_pilot.target_direction = self.space_center.transform_direction((1, 0, 0), self.surface_ref, self.body_ref)
             sleep(0.5)
-
-        # Lines
-        '''
-        line_aim_dir = self.conn.drawing.add_line((0, 0, 0), (0, 0, 0), self.surface_ref)
-        line_aim_dir.color = (0, 0, 1)
-        line_target_dir = self.conn.drawing.add_line((0, 0, 0), (0, 0, 0), self.surface_ref)
-        line_target_dir.color = (1, 0, 0)
-        '''
 
         # Variables
         self._vel = Vector3()
@@ -124,11 +125,6 @@ class LandingGuidance:
             self.auto_pilot.target_direction = self.space_center.transform_direction(self._aim_dir, self.surface_ref, self.body_ref)
             self.control.throttle = self._throttle
 
-            '''
-            line_aim_dir.end = self._aim_dir * 10
-            line_target_dir.end = self._point_pos.normalize() * 10
-            '''
-
             sleep(0.05)
 
 
@@ -162,7 +158,7 @@ class LandingGuidance:
 
     def going_target_transition(self):
         print("GOING-TARGET TRANSITION")
-        self.point = Vector3(self.target.position(self.body_ref))
+        #self.point = Vector3(self.target.position(self.body_ref))
         self.control.brakes = False
 
     def going_target(self):
